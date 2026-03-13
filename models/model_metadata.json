@@ -1,0 +1,9 @@
+{
+  "model_name": "FASAL Disease Classifier v2",
+  "base_model": "EfficientNetB0",
+  "num_classes": 38,
+  "input_size": 224,
+  "training_samples": 43456,
+  "validation_samples": 10849,
+  "has_leaf_validator": true
+}

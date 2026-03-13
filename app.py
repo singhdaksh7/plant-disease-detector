@@ -264,6 +264,8 @@ st.markdown("""
 # ──────────────────────────────────────────────
 # Model Loading
 # ──────────────────────────────────────────────
+VALIDATOR_PATH = os.environ.get("VALIDATOR_PATH", "models/leaf_validator.keras")
+
 @st.cache_resource
 def load_model():
     if not os.path.exists(MODEL_PATH):
@@ -274,10 +276,62 @@ def load_model():
         st.error(f"Error loading model: {e}")
         return None
 
+@st.cache_resource
+def load_validator():
+    if not os.path.exists(VALIDATOR_PATH):
+        return None
+    try:
+        return tf.keras.models.load_model(VALIDATOR_PATH)
+    except Exception:
+        return None
+
 
 def preprocess_image(image):
     image = image.convert("RGB").resize(IMG_SIZE)
     return np.expand_dims(np.array(image) / 255.0, axis=0)
+
+
+def validate_leaf(validator, image):
+    """
+    Check if the uploaded image is actually a leaf.
+    Returns (is_leaf: bool, confidence: float)
+    Uses both the CNN validator AND color analysis as dual check.
+    """
+    img_array = preprocess_image(image)
+
+    # Method 1: CNN Validator
+    cnn_score = 0.5
+    if validator is not None:
+        cnn_score = float(validator.predict(img_array, verbose=0)[0][0])
+
+    # Method 2: Color Analysis (leaves are predominantly green)
+    img_np = np.array(image.convert("RGB").resize((224, 224)))
+    r, g, b = img_np[:,:,0].mean(), img_np[:,:,1].mean(), img_np[:,:,2].mean()
+
+    # Green dominance ratio
+    total = r + g + b + 1e-8
+    green_ratio = g / total
+
+    # Leaves typically have green_ratio > 0.33 and green > red in many cases
+    # Also check for skin tones (high red, medium green, low blue)
+    is_skin_tone = (r > 150 and g > 100 and b > 80 and r > g and r > b)
+
+    # Color-based leaf score
+    color_score = 0.5
+    if green_ratio > 0.36:
+        color_score = 0.8
+    elif green_ratio > 0.33:
+        color_score = 0.6
+    elif is_skin_tone:
+        color_score = 0.15
+    else:
+        color_score = 0.35
+
+    # Combined score (60% CNN, 40% color analysis)
+    combined_score = (0.6 * cnn_score + 0.4 * color_score)
+
+    is_leaf = combined_score > 0.45
+    return is_leaf, combined_score
 
 
 def predict(model, image):
@@ -287,10 +341,13 @@ def predict(model, image):
 
 
 # ──────────────────────────────────────────────
-# Grad-CAM
+# Enhanced Grad-CAM with Bounding Box
 # ──────────────────────────────────────────────
 def generate_gradcam(model, image):
-    """Generate Grad-CAM heatmap showing which regions the model focused on."""
+    """
+    Generate enhanced Grad-CAM heatmap with automatic bounding box
+    around the high-attention disease region.
+    """
     try:
         img_array = preprocess_image(image)
         base_model = model.layers[0]
@@ -303,7 +360,7 @@ def generate_gradcam(model, image):
                 break
 
         if last_conv is None:
-            return None
+            return None, None
 
         grad_model = tf.keras.Model(
             inputs=base_model.input,
@@ -313,7 +370,6 @@ def generate_gradcam(model, image):
         with tf.GradientTape() as tape:
             conv_outputs, predictions_out = grad_model(img_array)
             top_class = tf.argmax(predictions_out[0])
-            # Build a small model for the classifier head
             classifier_input = tf.keras.Input(shape=conv_outputs.shape[1:])
             x = classifier_input
             for layer in model.layers[1:]:
@@ -324,14 +380,14 @@ def generate_gradcam(model, image):
 
         grads = tape.gradient(loss, conv_outputs)
         if grads is None:
-            return None
+            return None, None
 
         pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
         heatmap = tf.reduce_sum(conv_outputs[0] * pooled_grads, axis=-1)
         heatmap = tf.maximum(heatmap, 0) / (tf.reduce_max(heatmap) + 1e-8)
         heatmap = heatmap.numpy()
 
-        # Resize heatmap to image size
+        # Resize heatmap
         heatmap_resized = np.uint8(255 * heatmap)
         heatmap_img = Image.fromarray(heatmap_resized).resize((224, 224), Image.BILINEAR)
         heatmap_array = np.array(heatmap_img)
@@ -341,14 +397,43 @@ def generate_gradcam(model, image):
         heatmap_colored = colormap(heatmap_array / 255.0)[:, :, :3]
         heatmap_colored = np.uint8(heatmap_colored * 255)
 
-        # Overlay on original image
+        # Overlay on original
         original = image.convert("RGB").resize((224, 224))
         original_array = np.array(original)
-        overlay = np.uint8(original_array * 0.6 + heatmap_colored * 0.4)
+        overlay = np.uint8(original_array * 0.55 + heatmap_colored * 0.45)
 
-        return Image.fromarray(overlay)
+        # ── Generate Bounding Box around high-attention area ──
+        threshold = 0.5
+        binary_mask = (heatmap_array / 255.0) > threshold
+        bbox_image = original.copy()
+
+        if binary_mask.any():
+            rows = np.any(binary_mask, axis=1)
+            cols = np.any(binary_mask, axis=0)
+            y_min, y_max = np.where(rows)[0][[0, -1]]
+            x_min, x_max = np.where(cols)[0][[0, -1]]
+
+            # Add padding
+            pad = 8
+            y_min = max(0, y_min - pad)
+            y_max = min(223, y_max + pad)
+            x_min = max(0, x_min - pad)
+            x_max = min(223, x_max + pad)
+
+            # Draw bounding box on original image
+            bbox_array = np.array(bbox_image)
+            # Draw red rectangle (3px thick)
+            for t in range(3):
+                bbox_array[y_min+t, x_min:x_max+1] = [255, 50, 50]   # top
+                bbox_array[y_max-t, x_min:x_max+1] = [255, 50, 50]   # bottom
+                bbox_array[y_min:y_max+1, x_min+t] = [255, 50, 50]   # left
+                bbox_array[y_min:y_max+1, x_max-t] = [255, 50, 50]   # right
+
+            bbox_image = Image.fromarray(bbox_array)
+
+        return Image.fromarray(overlay), bbox_image
     except Exception:
-        return None
+        return None, None
 
 
 # ──────────────────────────────────────────────
@@ -528,22 +613,34 @@ def display_results(results, image=None, model=None):
 
     with tab3:
         st.markdown('<div class="info-card">', unsafe_allow_html=True)
-        st.markdown('<div class="info-card-hdr">🧠 Grad-CAM Visualization</div>', unsafe_allow_html=True)
-        st.markdown('<p style="font-size:0.85rem;color:#6b9e7a !important;margin-bottom:1rem;">This heatmap shows which regions of the leaf the AI model focused on to make its prediction. Red/yellow areas = high attention, blue = low attention.</p>', unsafe_allow_html=True)
+        st.markdown('<div class="info-card-hdr">🧠 AI Explainability — Grad-CAM + Disease Region Detection</div>', unsafe_allow_html=True)
+        st.markdown('<p style="font-size:0.85rem;color:#6b9e7a !important;margin-bottom:1rem;">See where the AI focused and the auto-detected disease region with bounding box. Red/yellow = high attention, blue = low attention.</p>', unsafe_allow_html=True)
 
         if model is not None and image is not None:
-            with st.spinner("Generating Grad-CAM heatmap..."):
-                heatmap = generate_gradcam(model, image)
-                if heatmap:
-                    col1, col2 = st.columns(2)
+            with st.spinner("Generating Grad-CAM heatmap & disease region..."):
+                heatmap, bbox_image = generate_gradcam(model, image)
+                if heatmap and bbox_image:
+                    col1, col2, col3 = st.columns(3)
                     with col1:
                         st.markdown("**Original Image**")
                         st.image(image.resize((224, 224)), use_container_width=True)
                     with col2:
                         st.markdown("**AI Focus Heatmap**")
                         st.image(heatmap, use_container_width=True)
+                    with col3:
+                        st.markdown("**Disease Region (Auto-detected)**")
+                        st.image(bbox_image, use_container_width=True)
+                    st.markdown("""
+                    <div style="margin-top:1rem;padding:1rem;background:rgba(76,175,80,0.05);border:1px solid rgba(76,175,80,0.1);border-radius:12px;">
+                        <div style="font-size:0.8rem;color:#a5d6a7 !important;line-height:1.6;">
+                            <strong>How to read this:</strong><br>
+                            🔴 <strong>Heatmap:</strong> Red/yellow regions = where the model looked most to identify the disease<br>
+                            🟥 <strong>Bounding Box:</strong> Red rectangle = auto-detected area most likely showing disease symptoms
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
                 else:
-                    st.info("Grad-CAM visualization is not available in demo mode.")
+                    st.info("Grad-CAM visualization could not be generated for this image.")
         else:
             st.info("🧪 Grad-CAM requires the trained model to be loaded.")
         st.markdown('</div>', unsafe_allow_html=True)
@@ -670,9 +767,32 @@ if page == "🏠 Home — Diagnose":
             image = None
 
         if model is not None and image is not None:
-            with st.spinner("🔍 Analyzing leaf image..."):
-                results = predict(model, image)
-                display_results(results, image, model)
+            # ── Step 1: Leaf Validation Gate ──
+            validator = load_validator()
+            with st.spinner("🛡️ Validating image..."):
+                is_leaf, leaf_score = validate_leaf(validator, image)
+
+            if not is_leaf:
+                # REJECTED — not a leaf
+                st.markdown(f"""
+                <div class="result-banner result-diseased animate-slide">
+                    <div class="result-title">🚫 Not a Plant Leaf</div>
+                    <div class="result-desc" style="margin-top:0.5rem;">
+                        This image doesn't appear to be a plant leaf. FASAL can only diagnose diseases from leaf images.
+                        <br><br>
+                        <strong>Leaf confidence score:</strong> {leaf_score*100:.1f}% (threshold: 45%)
+                        <br><br>
+                        <strong>Please upload:</strong><br>
+                        ✅ A clear photo of a single plant leaf<br>
+                        ❌ Not a human face, animal, object, or non-plant image
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                # ACCEPTED — proceed with disease prediction
+                with st.spinner("🔍 Analyzing leaf image..."):
+                    results = predict(model, image)
+                    display_results(results, image, model)
         else:
             with st.spinner("🔍 Simulating analysis..."):
                 time.sleep(1)
@@ -767,11 +887,12 @@ elif page == "⚙️ How It Works":
     # Steps
     steps = [
         ("1", "📤", "Upload Image", "You upload a photo of a plant leaf through our web interface. The image can be in JPG, PNG, or WebP format."),
-        ("2", "🔄", "Image Preprocessing", "The image is resized to 224×224 pixels and normalized. Pixel values are scaled to 0-1 range for optimal model performance."),
-        ("3", "🧠", "AI Model Prediction", "The image passes through MobileNetV2, a deep neural network pre-trained on 14 million ImageNet images and fine-tuned on 54,000+ plant leaf images from PlantVillage dataset."),
-        ("4", "📊", "Classification", "The model outputs probability scores for all 38 classes. We extract the top 3 predictions with their confidence scores."),
-        ("5", "🔍", "Grad-CAM Analysis", "Gradient-weighted Class Activation Mapping highlights which regions of the leaf the AI focused on, providing visual explainability."),
-        ("6", "📋", "Results & Treatment", "You receive the diagnosis with disease details, symptoms, severity level, and recommended treatments.")
+        ("2", "🛡️", "Leaf Validation Gate", "Before any disease analysis, a separate CNN classifier + color analysis checks if the image is actually a plant leaf. Non-leaf images (faces, objects, random photos) are rejected instantly. This prevents false diagnoses."),
+        ("3", "🔄", "Image Preprocessing", "The validated leaf image is resized to 224×224 pixels and normalized. Pixel values are scaled to 0-1 range for optimal model performance."),
+        ("4", "🧠", "EfficientNetB0 Prediction", "The image passes through EfficientNetB0, a state-of-the-art CNN using compound scaling, pre-trained on 14M ImageNet images and fine-tuned on 54,000+ PlantVillage leaf images."),
+        ("5", "📊", "Classification", "The model outputs probability scores for all 38 classes. We extract the top 3 predictions with their confidence scores."),
+        ("6", "🔍", "Grad-CAM + Disease Region Detection", "Gradient-weighted Class Activation Mapping generates a heatmap showing AI focus areas. An automatic bounding box is drawn around the high-attention disease region."),
+        ("7", "📋", "Results & Treatment", "You receive the full diagnosis with disease details, symptoms, severity level, treatment recommendations, and a downloadable report.")
     ]
 
     for num, icon, title, desc in steps:
@@ -790,16 +911,18 @@ elif page == "⚙️ How It Works":
     st.markdown('<div class="section-header">🏗️ Model Architecture</div>', unsafe_allow_html=True)
     st.markdown("""
     <div class="glass-card">
-        <div class="info-card-hdr">Transfer Learning with MobileNetV2</div>
+        <div class="info-card-hdr">Transfer Learning with EfficientNetB0 + Leaf Validation Gate</div>
         <div style="font-size:0.9rem; line-height:1.8; color:#a5d6a7 !important;">
-            <strong>Base Model:</strong> MobileNetV2 (pre-trained on ImageNet — 14M images)<br>
-            <strong>Strategy:</strong> Two-phase training<br>
-            <strong>Phase 1:</strong> Feature Extraction — freeze base layers, train top classifier (lr=0.001)<br>
-            <strong>Phase 2:</strong> Fine-Tuning — unfreeze top 50+ layers, train with very small lr (0.00001)<br>
+            <strong>🛡️ Leaf Validator:</strong> Custom lightweight CNN (4 conv blocks) — binary classification (leaf vs not-leaf)<br>
+            <strong>🧠 Disease Classifier:</strong> EfficientNetB0 (compound scaling — better than MobileNetV2)<br>
+            <strong>Why EfficientNetB0?</strong> 77.1% ImageNet top-1 acc vs MobileNetV2's 71.8%, with only 5.3M params<br>
+            <strong>Strategy:</strong> Two-phase training (Feature Extraction → Fine-Tuning)<br>
+            <strong>Phase 1:</strong> Freeze base, train classifier head (lr=0.001)<br>
+            <strong>Phase 2:</strong> Unfreeze top layers, fine-tune (lr=0.00001)<br>
             <strong>Data Augmentation:</strong> Rotation, flip, zoom, brightness, shear<br>
             <strong>Input Size:</strong> 224 × 224 × 3 (RGB)<br>
             <strong>Output:</strong> 38-class softmax probability distribution<br>
-            <strong>Parameters:</strong> ~3.4M (base) + custom head<br>
+            <strong>Explainability:</strong> Grad-CAM heatmaps + auto bounding box<br>
             <strong>Validation Accuracy:</strong> 96%+
         </div>
     </div>
@@ -909,7 +1032,7 @@ elif page == "📬 Contact Us":
 
     faqs = [
         ("What types of images work best?", "Clear, well-lit photos of a single plant leaf work best. Avoid blurry images or photos with multiple overlapping leaves."),
-        ("How accurate is the model?", "Our MobileNetV2 model achieves 96%+ validation accuracy on the PlantVillage dataset. However, accuracy may vary with real-world images."),
+        ("How accurate is the model?", "Our EfficientNetB0 model achieves 96%+ validation accuracy on the PlantVillage dataset. It also includes a leaf validation gate that rejects non-leaf images. However, accuracy may vary with real-world images."),
         ("Can I use this for commercial farming?", "This tool is designed for educational purposes. For critical agricultural decisions, please consult a professional plant pathologist."),
         ("What plants are supported?", "We currently support 14 crop species including tomato, potato, apple, grape, corn, and more. Check the Supported Plants page for the full list."),
         ("Is my data stored?", "Uploaded images are processed in real-time and are not stored on our servers. Contact form submissions are saved for response purposes only."),
@@ -966,7 +1089,7 @@ elif page == "ℹ️ About":
 
     tech = [
         ("🧠", "TensorFlow / Keras", "Deep learning framework"),
-        ("📱", "MobileNetV2", "Pre-trained base model"),
+        ("📱", "EfficientNetB0", "Pre-trained base model"),
         ("🎨", "Streamlit", "Web application framework"),
         ("🐳", "Docker", "Containerization"),
         ("☁️", "Render", "Cloud deployment"),
@@ -992,7 +1115,7 @@ elif page == "ℹ️ About":
     st.markdown("""
     <div class="glass-card" style="font-size:0.9rem;line-height:1.8;color:#a5d6a7 !important;">
         <strong>Dataset:</strong> PlantVillage by Abdallah Ali (54,000+ labeled images)<br>
-        <strong>Base Model:</strong> MobileNetV2 — Google Research<br>
+        <strong>Base Model:</strong> EfficientNetB0 — Google Research<br>
         <strong>Framework:</strong> TensorFlow & Streamlit open-source community
     </div>
     """, unsafe_allow_html=True)
@@ -1004,7 +1127,7 @@ elif page == "ℹ️ About":
 st.markdown("""
 <div class="app-footer">
     <div class="footer-brand">🌾 FASAL — AI-Driven Crop Disease Detector</div>
-    <div class="footer-text">Built with TensorFlow & Streamlit · MobileNetV2 Transfer Learning · PlantVillage Dataset</div>
+    <div class="footer-text">Built with TensorFlow & Streamlit · EfficientNetB0 Transfer Learning · PlantVillage Dataset</div>
     <div class="footer-text" style="margin-top:0.5rem;opacity:0.5;">For educational purposes only — not a substitute for professional agricultural advice</div>
 </div>
 """, unsafe_allow_html=True)

@@ -142,26 +142,6 @@ plant-disease-detector/
 ---
 
 
----
-
-## 📈 Resume Description
-
-Here's how you can describe this project on your resume:
-
-> **Plant Disease Detector** | Python, TensorFlow, Streamlit  
-> - Built an AI-powered web app that identifies 26 plant diseases across 14 crop species from leaf images with 96%+ accuracy  
-> - Implemented transfer learning using MobileNetV2 with a two-phase training strategy (feature extraction + fine-tuning)  
-> - Designed an interactive UI with real-time predictions, confidence scores, severity assessment, and treatment recommendations  
-> - Deployed as a full-stack web application using Streamlit, with TFLite model conversion for mobile readiness  
-
----
-
-## 📝 License
-
-This project is open source under the [MIT License](LICENSE).
-
----
-
 ## 🙏 Acknowledgments
 
 - **Dataset:** [PlantVillage](https://www.kaggle.com/datasets/abdallahalidev/plantvillage-dataset) by Abdallah Ali

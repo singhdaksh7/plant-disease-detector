@@ -141,29 +141,6 @@ plant-disease-detector/
 
 ---
 
-## ☁️ Deployment
-
-### Deploy on Streamlit Cloud (Free & Easy)
-
-1. Push your code to GitHub
-2. Go to [share.streamlit.io](https://share.streamlit.io)
-3. Connect your GitHub repo
-4. Set `app.py` as the main file
-5. **Important:** Upload your trained model to the repo or use Git LFS
-
-### Deploy on Render
-
-1. Add a `Procfile`:
-   ```
-   web: streamlit run app.py --server.port $PORT --server.address 0.0.0.0
-   ```
-2. Push to GitHub and connect to [render.com](https://render.com)
-
-### Deploy on Hugging Face Spaces
-
-1. Create a new Space on [huggingface.co/spaces](https://huggingface.co/spaces)
-2. Choose "Streamlit" as the SDK
-3. Upload your files including the model
 
 ---
 

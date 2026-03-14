@@ -288,50 +288,78 @@ def load_validator():
 
 def preprocess_image(image):
     image = image.convert("RGB").resize(IMG_SIZE)
-    return np.expand_dims(np.array(image) / 255.0, axis=0)
+    img_array = np.expand_dims(np.array(image).astype(np.float32), axis=0)
+    # EfficientNetB0 has its own preprocessing (expects 0-255, normalizes internally)
+    img_array = tf.keras.applications.efficientnet.preprocess_input(img_array)
+    return img_array
 
 
-def validate_leaf(validator, image):
+def validate_leaf(validator, image, model=None):
     """
-    Check if the uploaded image is actually a leaf.
-    Returns (is_leaf: bool, confidence: float)
-    Uses both the CNN validator AND color analysis as dual check.
+    Check if the uploaded image is actually a leaf using 3 methods:
+    1. Color analysis — leaves should have significant green
+    2. CNN validator (if available)
+    3. Disease model confidence — if max prediction < threshold, it's not a leaf
+    Returns (is_leaf: bool, confidence: float, reason: str)
     """
-    img_array = preprocess_image(image)
-
-    # Method 1: CNN Validator
-    cnn_score = 0.5
-    if validator is not None:
-        cnn_score = float(validator.predict(img_array, verbose=0)[0][0])
-
-    # Method 2: Color Analysis (leaves are predominantly green)
     img_np = np.array(image.convert("RGB").resize((224, 224)))
     r, g, b = img_np[:,:,0].mean(), img_np[:,:,1].mean(), img_np[:,:,2].mean()
 
-    # Green dominance ratio
+    # ── Method 1: Color Analysis (most reliable for leaf vs non-leaf) ──
     total = r + g + b + 1e-8
     green_ratio = g / total
+    red_ratio = r / total
 
-    # Leaves typically have green_ratio > 0.33 and green > red in many cases
-    # Also check for skin tones (high red, medium green, low blue)
-    is_skin_tone = (r > 150 and g > 100 and b > 80 and r > g and r > b)
+    # Check for skin tones (high red, medium green, low-medium blue)
+    is_skin = (r > 140 and g > 90 and b > 60 and r > g and r > b and (r - g) > 15)
 
-    # Color-based leaf score
-    color_score = 0.5
-    if green_ratio > 0.36:
-        color_score = 0.8
-    elif green_ratio > 0.33:
-        color_score = 0.6
-    elif is_skin_tone:
+    # Check for very low green (non-plant images)
+    is_low_green = green_ratio < 0.30
+
+    # Check if image is mostly gray/white/black (not colorful like leaves)
+    std_color = np.std([r, g, b])
+    is_gray = std_color < 15
+
+    color_score = 1.0
+    reason = ""
+    if is_skin:
         color_score = 0.15
-    else:
-        color_score = 0.35
+        reason = "Image appears to contain skin tones, not a plant leaf."
+    elif is_gray:
+        color_score = 0.20
+        reason = "Image appears to be grayscale or lacks plant-like colors."
+    elif is_low_green:
+        color_score = 0.25
+        reason = "Image lacks sufficient green color typical of plant leaves."
 
-    # Combined score (60% CNN, 40% color analysis)
-    combined_score = (0.6 * cnn_score + 0.4 * color_score)
+    # ── Method 2: CNN Validator ──
+    cnn_score = 0.5
+    if validator is not None:
+        img_val = np.expand_dims(img_np / 255.0, axis=0)
+        cnn_score = float(validator.predict(img_val, verbose=0)[0][0])
 
-    is_leaf = combined_score > 0.45
-    return is_leaf, combined_score
+    # ── Method 3: Disease Model Confidence Check ──
+    model_score = 0.5
+    if model is not None:
+        predictions = model.predict(preprocess_image(image), verbose=0)[0]
+        max_conf = float(np.max(predictions))
+        # If model is very uncertain (< 40%), likely not a leaf
+        if max_conf < 0.40:
+            model_score = 0.2
+            if not reason:
+                reason = "AI model could not confidently identify any known plant disease pattern."
+        else:
+            model_score = min(max_conf, 1.0)
+
+    # ── Combined Decision ──
+    # Color is strongest signal, then model confidence, then CNN
+    combined = (0.45 * color_score + 0.35 * model_score + 0.20 * cnn_score)
+
+    is_leaf = combined > 0.45
+    if not reason and not is_leaf:
+        reason = "Image does not appear to be a plant leaf."
+
+    return is_leaf, combined, reason
 
 
 def predict(model, image):
@@ -770,7 +798,7 @@ if page == "🏠 Home — Diagnose":
             # ── Step 1: Leaf Validation Gate ──
             validator = load_validator()
             with st.spinner("🛡️ Validating image..."):
-                is_leaf, leaf_score = validate_leaf(validator, image)
+                is_leaf, leaf_score, reject_reason = validate_leaf(validator, image, model)
 
             if not is_leaf:
                 # REJECTED — not a leaf
@@ -778,7 +806,7 @@ if page == "🏠 Home — Diagnose":
                 <div class="result-banner result-diseased animate-slide">
                     <div class="result-title">🚫 Not a Plant Leaf</div>
                     <div class="result-desc" style="margin-top:0.5rem;">
-                        This image doesn't appear to be a plant leaf. FASAL can only diagnose diseases from leaf images.
+                        {reject_reason}
                         <br><br>
                         <strong>Leaf confidence score:</strong> {leaf_score*100:.1f}% (threshold: 45%)
                         <br><br>

@@ -117,8 +117,10 @@ def create_leaf_validator(input_shape: tuple = (224, 224, 3)) -> tf.keras.Model:
 def create_data_generators(data_dir: str, batch_size: int = 32, img_size: tuple = (224, 224)):
     """Create training and validation data generators with augmentation."""
 
+    # IMPORTANT: EfficientNetB0 expects 0-255 pixel range and handles
+    # its own normalization internally. Do NOT rescale to 0-1.
     train_datagen = ImageDataGenerator(
-        rescale=1.0 / 255,
+        preprocessing_function=tf.keras.applications.efficientnet.preprocess_input,
         rotation_range=30,
         width_shift_range=0.2,
         height_shift_range=0.2,
@@ -132,7 +134,7 @@ def create_data_generators(data_dir: str, batch_size: int = 32, img_size: tuple 
     )
 
     val_datagen = ImageDataGenerator(
-        rescale=1.0 / 255,
+        preprocessing_function=tf.keras.applications.efficientnet.preprocess_input,
         validation_split=0.2
     )
 

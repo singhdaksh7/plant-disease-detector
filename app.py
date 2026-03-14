@@ -70,7 +70,10 @@ st.markdown("""
             radial-gradient(ellipse at 50% 80%, rgba(76, 175, 80, 0.04) 0%, transparent 50%);
         font-family: 'DM Sans', sans-serif;
     }
-    .stApp * { color: var(--text-primary) !important; font-family: 'DM Sans', sans-serif !important; }
+    .stApp * { color: var(--text-primary) !important; }
+    .stApp *:not([data-testid="stIconMaterial"]):not(.material-symbols-rounded):not(.material-icons) {
+        font-family: 'DM Sans', sans-serif !important;
+    }
     #MainMenu, footer { visibility: hidden; }
     .block-container { padding-top: 2rem !important; max-width: 1200px !important; }
 
@@ -257,6 +260,195 @@ st.markdown("""
     ::-webkit-scrollbar { width:6px; }
     ::-webkit-scrollbar-track { background:var(--bg-primary); }
     ::-webkit-scrollbar-thumb { background:rgba(76,175,80,0.3); border-radius:3px; }
+
+    /* ══ DARK THEME OVERRIDES FOR ALL STREAMLIT COMPONENTS ══ */
+
+    /* File Uploader */
+    .stFileUploader {
+        background: transparent !important;
+    }
+    .stFileUploader > div {
+        background: rgba(76,175,80,0.05) !important;
+        border: 2px dashed rgba(76,175,80,0.3) !important;
+        border-radius: 16px !important;
+        padding: 1.5rem !important;
+    }
+    .stFileUploader > div:hover {
+        border-color: rgba(76,175,80,0.5) !important;
+        background: rgba(76,175,80,0.08) !important;
+    }
+    .stFileUploader label,
+    .stFileUploader span,
+    .stFileUploader p,
+    .stFileUploader small,
+    .stFileUploader div {
+        color: #a5d6a7 !important;
+    }
+    .stFileUploader button {
+        background: linear-gradient(135deg, #2e7d32, #4caf50) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 8px !important;
+    }
+    /* Upload drag area text */
+    [data-testid="stFileUploaderDropzone"] {
+        background: rgba(76,175,80,0.05) !important;
+        border-color: rgba(76,175,80,0.3) !important;
+    }
+    [data-testid="stFileUploaderDropzone"] * {
+        color: #a5d6a7 !important;
+    }
+    [data-testid="stFileUploaderDropzoneInstructions"] * {
+        color: #6b9e7a !important;
+    }
+    [data-testid="stFileUploaderDropzone"] button {
+        background: rgba(76,175,80,0.15) !important;
+        color: #4caf50 !important;
+        border: 1px solid rgba(76,175,80,0.3) !important;
+    }
+
+    /* Selectbox / Dropdown */
+    .stSelectbox > div > div {
+        background: #0f261a !important;
+        border: 1px solid rgba(76,175,80,0.3) !important;
+        border-radius: 12px !important;
+        color: #e8f5e9 !important;
+    }
+    .stSelectbox > div > div * {
+        color: #e8f5e9 !important;
+    }
+    .stSelectbox label {
+        color: #a5d6a7 !important;
+    }
+    [data-baseweb="select"] {
+        background: #0f261a !important;
+    }
+    [data-baseweb="select"] * {
+        color: #e8f5e9 !important;
+    }
+    [data-baseweb="popover"] {
+        background: #0f261a !important;
+        border: 1px solid rgba(76,175,80,0.2) !important;
+    }
+    [data-baseweb="popover"] li {
+        background: #0f261a !important;
+        color: #e8f5e9 !important;
+    }
+    [data-baseweb="popover"] li:hover {
+        background: rgba(76,175,80,0.15) !important;
+    }
+
+    /* Expander */
+    .stExpander {
+        background: rgba(255,255,255,0.02) !important;
+        border: 1px solid var(--border-glass) !important;
+        border-radius: 12px !important;
+    }
+    .stExpander > div {
+        background: transparent !important;
+    }
+    .stExpander summary {
+        color: #a5d6a7 !important;
+    }
+    .stExpander summary:hover {
+        color: #4caf50 !important;
+    }
+    [data-testid="stExpander"] {
+        background: rgba(255,255,255,0.02) !important;
+        border: 1px solid var(--border-glass) !important;
+        border-radius: 12px !important;
+    }
+    [data-testid="stExpander"] details {
+        background: transparent !important;
+        border: none !important;
+    }
+    [data-testid="stExpander"] summary {
+        color: #a5d6a7 !important;
+        background: transparent !important;
+    }
+    [data-testid="stExpanderDetails"] {
+        background: rgba(255,255,255,0.01) !important;
+    }
+
+    /* Radio buttons in sidebar */
+    .stRadio > div {
+        background: transparent !important;
+    }
+    .stRadio label {
+        color: #a5d6a7 !important;
+        background: transparent !important;
+    }
+    .stRadio [data-baseweb="radio"] {
+        background: transparent !important;
+    }
+
+    /* Download button */
+    .stDownloadButton > button {
+        background: linear-gradient(135deg, #2e7d32, #4caf50) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 12px !important;
+    }
+    .stDownloadButton > button:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 4px 20px rgba(76,175,80,0.3) !important;
+    }
+
+    /* Success/Error/Warning/Info messages */
+    .stAlert {
+        background: rgba(255,255,255,0.03) !important;
+        border-radius: 12px !important;
+    }
+    [data-testid="stAlert"] {
+        background: rgba(255,255,255,0.03) !important;
+    }
+    .stSuccess, [data-baseweb="notification"] {
+        background: rgba(76,175,80,0.1) !important;
+        color: #a5d6a7 !important;
+    }
+
+    /* Spinner */
+    .stSpinner > div {
+        color: #4caf50 !important;
+    }
+    .stSpinner > div > span {
+        color: #a5d6a7 !important;
+    }
+
+    /* Code block */
+    .stCodeBlock, code, pre {
+        background: #0f261a !important;
+        color: #a5d6a7 !important;
+        border: 1px solid var(--border-glass) !important;
+        border-radius: 8px !important;
+    }
+
+    /* Horizontal line */
+    hr {
+        border-color: var(--border-glass) !important;
+    }
+
+    /* ALL remaining white backgrounds */
+    .stMarkdown, .stText, .stCaption {
+        color: var(--text-primary) !important;
+    }
+    .element-container {
+        background: transparent !important;
+    }
+    div[data-testid="stVerticalBlock"] > div {
+        background: transparent !important;
+    }
+    .stMainBlockContainer, .stMain, main {
+        background: transparent !important;
+    }
+    div[data-testid="stToolbar"] {
+        background: transparent !important;
+    }
+    /* Header bar - keep visible but dark */
+    header[data-testid="stHeader"] {
+        background: rgba(10, 26, 15, 0.95) !important;
+        backdrop-filter: blur(10px) !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 

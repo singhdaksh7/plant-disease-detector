@@ -71,7 +71,7 @@ st.markdown("""
         font-family: 'DM Sans', sans-serif;
     }
     .stApp * { color: var(--text-primary) !important; font-family: 'DM Sans', sans-serif !important; }
-    #MainMenu, footer, header { visibility: hidden; }
+    #MainMenu, footer { visibility: hidden; }
     .block-container { padding-top: 2rem !important; max-width: 1200px !important; }
 
     /* Hero */
